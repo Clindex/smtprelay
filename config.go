@@ -193,16 +193,15 @@ func parseLogHeaders(s string) map[string]string {
 }
 
 func (s *config) GetSMTPCredentials(sender string) SMTPCredentials {
-	// if sender is not set, return empty credentials
+	// if sender is not set, return default credentials
 	if sender == "" {
 		return s.credentials["default"]
 	}
 
-	// if sender is not in credentials, return empty credentials
+	// if sender is in credentials, return those credentials
 	if creds, ok := s.credentials[sender]; ok {
 		return creds
 	}
 
-	// if sender is not in credentials, return empty credentials
 	return s.credentials["default"]
 }
