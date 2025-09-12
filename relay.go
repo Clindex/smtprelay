@@ -309,12 +309,11 @@ func (r *relay) mailHandler(cfg *config) func(ctx context.Context, peer smtpd.Pe
 		var auth smtp.Auth
 
 		if credentials.Username != "" && credentials.Password != "" {
-			authType := "plain"
-			if strings.Contains(credentials.Server, "outlook") ||
-				strings.Contains(credentials.Server, "office") {
-				authType = "login"
+			authType := credentials.AuthType
+			if authType == "" {
+				authType = "plain"
 			}
-			switch authType {
+			switch strings.ToLower(authType) {
 			case "plain":
 				auth = smtp.PlainAuth("", credentials.Username, credentials.Password, credentials.Server)
 			case "login":

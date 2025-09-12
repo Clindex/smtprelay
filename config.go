@@ -20,6 +20,7 @@ type SMTPCredentials struct {
 	Password string `yaml:"password"`
 	Server   string `yaml:"server"`
 	Port     int    `yaml:"port"`
+	AuthType string `yaml:"authType"`
 }
 
 //nolint:govet
