@@ -15,7 +15,7 @@ jobs:
       short-sha: ${{ steps.version.outputs.short-sha }}
       go-ldflags: ${{ steps.version.outputs.go-ldflags }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5.0.1
         with:
           fetch-depth: 0
           fetch-tags: true
