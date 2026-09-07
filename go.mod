@@ -1,6 +1,6 @@
 module github.com/evidentiq/smtprelay/v2
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/Masterminds/semver v1.5.0
@@ -15,7 +15,7 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.39.0
 	go.opentelemetry.io/otel/sdk v1.43.0
 	go.opentelemetry.io/otel/trace v1.43.0
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 )
 
 require (
