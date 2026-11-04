@@ -1,12 +1,26 @@
 package main
 
 import (
+	"flag"
 	"net"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestAllowInsecureAuthFlag(t *testing.T) {
+	t.Parallel()
+	var cfg config
+	flags := flag.NewFlagSet("test", flag.ContinueOnError)
+	registerFlags(flags, &cfg)
+	require.False(t, cfg.allowInsecureAuth)
+	require.NoError(t, flags.Parse([]string{"-allow_insecure_auth=true"}))
+	require.True(t, cfg.allowInsecureAuth)
+	r, err := newRelay(&cfg)
+	require.NoError(t, err)
+	require.True(t, r.server.AllowInsecureAuth)
+}
 
 func TestSetupAllowedNetworks(t *testing.T) {
 	t.Parallel()
