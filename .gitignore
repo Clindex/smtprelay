@@ -10,3 +10,6 @@ smtpcreds.yml
 hasher
 hasher.exe
 
+.direnv
+.envrc
+
