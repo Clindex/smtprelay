@@ -8,3 +8,7 @@ smtprelay.log
 *.out
 hasher
 hasher.exe
+
+.direnv
+.envrc
+
