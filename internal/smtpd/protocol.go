@@ -365,7 +365,7 @@ func (session *session) handleAUTH(ctx context.Context, cmd command) {
 		return
 	}
 
-	if !session.tls {
+	if !session.tls && !session.server.AllowInsecureAuth {
 		session.error(ErrNoSTARTTLS)
 		return
 	}

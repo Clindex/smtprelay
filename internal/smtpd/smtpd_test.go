@@ -12,6 +12,7 @@ import (
 	"net/textproto"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -968,6 +969,53 @@ func TestHELO(t *testing.T) {
 
 	err = c.Quit()
 	require.NoError(t, err)
+}
+
+func TestAuthWithoutTLS(t *testing.T) {
+	t.Parallel()
+	for _, allow := range []bool{false, true} {
+		for _, mechanism := range []string{"LOGIN", "PLAIN"} {
+			t.Run(fmt.Sprintf("allow=%t/%s", allow, mechanism), func(t *testing.T) {
+				t.Parallel()
+				var called atomic.Bool
+				addr, closer := runserver(t, &smtpd.Server{
+					AllowInsecureAuth: allow,
+					Authenticator: func(_ context.Context, _ smtpd.Peer, username, password string) error {
+						called.Store(true)
+						if username != "foo" || password != "bar" {
+							return smtpd.ErrAuthInvalid
+						}
+						return nil
+					},
+				})
+				defer closer()
+				c, err := smtp.Dial(addr)
+				require.NoError(t, err)
+				defer c.Close()
+				supported, mechs := c.Extension("AUTH")
+				require.Equal(t, allow, supported)
+				if !allow {
+					require.NoError(t, cmd(c.Text, 502, "AUTH %s", mechanism))
+				} else {
+					assert.Contains(t, mechs, mechanism)
+					require.NoError(t, cmd(c.Text, 530, "MAIL FROM:<foo@example.com>"))
+					if mechanism == "LOGIN" {
+						require.NoError(t, cmd(c.Text, 334, "AUTH LOGIN"))
+						require.NoError(t, cmd(c.Text, 334, "Zm9v"))
+						require.NoError(t, cmd(c.Text, 535, "YmFk"))
+						require.NoError(t, cmd(c.Text, 334, "AUTH LOGIN Zm9v"))
+						require.NoError(t, cmd(c.Text, 235, "YmFy"))
+					} else {
+						require.NoError(t, cmd(c.Text, 535, "AUTH PLAIN AGZvbwBiYWQ="))
+						require.NoError(t, cmd(c.Text, 235, "AUTH PLAIN AGZvbwBiYXI="))
+					}
+					require.NoError(t, cmd(c.Text, 250, "MAIL FROM:<foo@example.com>"))
+				}
+				require.NoError(t, c.Quit())
+				assert.Equal(t, allow, called.Load())
+			})
+		}
+	}
 }
 
 func TestLOGINAuth(t *testing.T) {
