@@ -134,7 +134,7 @@ type session struct {
 	tls bool
 }
 
-func (srv *Server) newSession(c net.Conn) *session {
+func (srv *Server) newSession(ctx context.Context, c net.Conn) *session {
 	s := &session{
 		server: srv,
 		conn:   c,
@@ -157,7 +157,7 @@ func (srv *Server) newSession(c net.Conn) *session {
 	if s.tls {
 		// run handshake otherwise it's done when we first
 		// read/write and connection state will be invalid
-		_ = tlsConn.Handshake()
+		_ = tlsConn.HandshakeContext(ctx)
 		state := tlsConn.ConnectionState()
 		s.peer.TLS = &state
 	}
@@ -243,7 +243,7 @@ func (srv *Server) Serve(ctx context.Context, l net.Listener) error {
 			}
 		}
 
-		session := srv.newSession(conn)
+		session := srv.newSession(connCtx, conn)
 
 		srv.waitgrp.Add(1)
 		go func() {

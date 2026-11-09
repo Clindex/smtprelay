@@ -51,7 +51,7 @@ func startTestSMTPServer(ctx context.Context, t *testing.T) *testSMTPServer {
 		},
 	}
 
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	l, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
 	go func(l net.Listener) {
@@ -90,7 +90,7 @@ func startRelay(ctx context.Context, t *testing.T, srvAddr string) string {
 
 	addr := ""
 	// pick a random port
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	l, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
 	addr = l.Addr().String()
@@ -111,7 +111,7 @@ func startRelay(ctx context.Context, t *testing.T, srvAddr string) string {
 
 	// wait for the server to start
 	for range 10 {
-		conn, err := net.Dial("tcp", addr)
+		conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr)
 		if err == nil {
 			_ = conn.Close()
 			break
