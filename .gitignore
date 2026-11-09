@@ -6,6 +6,7 @@ smtprelay.log
 !smtprelay.ini
 .idea
 *.out
+smtpcreds.yml
 hasher
 hasher.exe
 
