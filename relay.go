@@ -14,8 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/time/rate"
+	_auth "github.com/evidentiq/smtprelay/v2/internal/auth"
 
+	"golang.org/x/time/rate"
 	"github.com/evidentiq/smtprelay/v2/internal/smtpd"
 	"github.com/evidentiq/smtprelay/v2/internal/traceutil"
 	"github.com/google/uuid"
@@ -106,12 +107,12 @@ func (r *relay) shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (r *relay) listen(address string) (net.Listener, error) {
+func (r *relay) listen(ctx context.Context, address string) (net.Listener, error) {
 	var ln net.Listener
 
 	switch {
 	case !strings.Contains(address, "://"):
-		listener, err := net.Listen("tcp", address)
+		listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", address)
 		if err != nil {
 			return nil, fmt.Errorf("could not listen on address %q: %w", address, err)
 		}
@@ -127,7 +128,7 @@ func (r *relay) listen(address string) (net.Listener, error) {
 
 		address = strings.TrimPrefix(address, "starttls://")
 
-		listener, err := net.Listen("tcp", address)
+		listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", address)
 		if err != nil {
 			return nil, fmt.Errorf("could not listen on address %q: %w", address, err)
 		}
@@ -303,24 +304,31 @@ func (r *relay) mailHandler(cfg *config) func(ctx context.Context, peer smtpd.Pe
 
 		logger := slog.With(slog.String("component", "mail_handler"), slog.String("uuid", uniqueID))
 
+		credentials := cfg.GetSMTPCredentials(env.Sender)
+		remoteHost := fmt.Sprintf("%s:%d", credentials.Server, credentials.Port)
 		// parse headers from data if we need to log any of them
 		var err error
 		deliveryLog := logger.With(
 			slog.String("from", env.Sender),
 			slog.Any("to", env.Recipients),
-			slog.String("host", cfg.remoteHost),
+			slog.String("host", remoteHost),
 		)
 		deliveryLog = addLogHeaderFields(cfg.logHeaders, deliveryLog, env.Header)
 
 		deliveryLog.InfoContext(ctx, "delivering mail from peer using smarthost")
 
 		var auth smtp.Auth
-		host, _, _ := net.SplitHostPort(cfg.remoteHost)
 
-		if cfg.remoteUser != "" && cfg.remotePass != "" {
-			switch cfg.remoteAuth {
+		if credentials.Username != "" && credentials.Password != "" {
+			authType := credentials.AuthType
+			if authType == "" {
+				authType = "plain"
+			}
+			switch strings.ToLower(authType) {
 			case "plain":
-				auth = smtp.PlainAuth("", cfg.remoteUser, cfg.remotePass, host)
+				auth = smtp.PlainAuth("", credentials.Username, credentials.Password, credentials.Server)
+			case "login":
+				auth = _auth.LoginAuth(credentials.Username, credentials.Password, credentials.Server)
 			default:
 				return observeErr(ctx, smtpd.ErrUnsupportedAuthMethod)
 			}
@@ -352,7 +360,7 @@ func (r *relay) mailHandler(cfg *config) func(ctx context.Context, peer smtpd.Pe
 			return observeErr(ctx, smtpd.ErrRateLimitExceeded)
 		}
 		err = smtp.SendMail(
-			cfg.remoteHost,
+			remoteHost,
 			auth,
 			sender,
 			env.Recipients,
@@ -513,7 +521,6 @@ func getServerTLSConfig(certpath, keypath string) (*tls.Config, error) {
 		return nil, fmt.Errorf("cannot load X509 keypair: %w", err)
 	}
 
-	//nolint:gosec // 1.2 is default, and omitting MinVersion allows overriding with GODEBUG
 	return &tls.Config{
 		Certificates: []tls.Certificate{cert},
 	}, nil

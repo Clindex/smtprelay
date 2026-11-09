@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/smtp"
 	"net/textproto"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -51,7 +52,7 @@ func startTestSMTPServer(ctx context.Context, t *testing.T) *testSMTPServer {
 		},
 	}
 
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	l, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
 	go func(l net.Listener) {
@@ -90,7 +91,7 @@ func startRelay(ctx context.Context, t *testing.T, srvAddr string) string {
 
 	addr := ""
 	// pick a random port
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	l, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
 	addr = l.Addr().String()
@@ -99,11 +100,20 @@ func startRelay(ctx context.Context, t *testing.T, srvAddr string) string {
 	go func() {
 		metricsRegistry = prometheus.NewRegistry()
 
+		host, portStr, _ := net.SplitHostPort(srvAddr)
+		port, _ := strconv.Atoi(portStr)
+
 		cfg := &config{
 			listen:        addr,
 			metricsListen: "127.0.0.1:0",
 			remoteHost:    srvAddr,
 			logLevel:      "debug",
+			credentials: map[string]SMTPCredentials{
+				"default": {
+					Server: host,
+					Port:   port,
+				},
+			},
 		}
 
 		_ = run(ctx, cfg)
@@ -111,7 +121,7 @@ func startRelay(ctx context.Context, t *testing.T, srvAddr string) string {
 
 	// wait for the server to start
 	for range 10 {
-		conn, err := net.Dial("tcp", addr)
+		conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr)
 		if err == nil {
 			_ = conn.Close()
 			break

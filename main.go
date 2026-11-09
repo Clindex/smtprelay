@@ -78,7 +78,7 @@ func run(ctx context.Context, cfg *config) error {
 		}
 
 		var listener net.Listener
-		listener, err = relay.listen(address)
+		listener, err = relay.listen(ctx, address)
 		if err != nil {
 			return fmt.Errorf("error listening on address %q: %w", address, err)
 		}
