@@ -49,9 +49,11 @@ type Server struct {
 	SenderChecker     func(ctx context.Context, peer Peer, addr string) error // Called after MAIL FROM.
 	RecipientChecker  func(ctx context.Context, peer Peer, addr string) error // Called after each RCPT TO.
 
-	// Enable PLAIN/LOGIN authentication, only available after STARTTLS.
+	// Enable PLAIN/LOGIN authentication, requiring TLS unless AllowInsecureAuth is set.
 	// Can be left empty for no authentication support.
 	Authenticator func(ctx context.Context, peer Peer, username, password string) error
+
+	AllowInsecureAuth bool // Allow PLAIN/LOGIN authentication without TLS (default: false).
 
 	EnableXCLIENT       bool // Enable XCLIENT support (default: false)
 	EnableProxyProtocol bool // Enable proxy protocol support (default: false)
@@ -463,7 +465,7 @@ func (session *session) extensions() []string {
 		extensions = append(extensions, "STARTTLS")
 	}
 
-	if session.server.Authenticator != nil && session.tls {
+	if session.server.Authenticator != nil && (session.tls || session.server.AllowInsecureAuth) {
 		extensions = append(extensions, "AUTH PLAIN LOGIN")
 	}
 

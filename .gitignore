@@ -7,3 +7,6 @@ smtprelay.log
 .idea
 *.out
 smtpcreds.yml
+hasher
+hasher.exe
+
