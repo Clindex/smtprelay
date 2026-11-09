@@ -95,12 +95,12 @@ func (r *relay) shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (r *relay) listen(address string) (net.Listener, error) {
+func (r *relay) listen(ctx context.Context, address string) (net.Listener, error) {
 	var ln net.Listener
 
 	switch {
 	case !strings.Contains(address, "://"):
-		listener, err := net.Listen("tcp", address)
+		listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", address)
 		if err != nil {
 			return nil, fmt.Errorf("could not listen on address %q: %w", address, err)
 		}
@@ -116,7 +116,7 @@ func (r *relay) listen(address string) (net.Listener, error) {
 
 		address = strings.TrimPrefix(address, "starttls://")
 
-		listener, err := net.Listen("tcp", address)
+		listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", address)
 		if err != nil {
 			return nil, fmt.Errorf("could not listen on address %q: %w", address, err)
 		}
@@ -467,7 +467,6 @@ func getServerTLSConfig(certpath, keypath string) (*tls.Config, error) {
 		return nil, fmt.Errorf("cannot load X509 keypair: %w", err)
 	}
 
-	//nolint:gosec // 1.2 is default, and omitting MinVersion allows overriding with GODEBUG
 	return &tls.Config{
 		Certificates: []tls.Certificate{cert},
 	}, nil
