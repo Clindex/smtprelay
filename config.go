@@ -83,13 +83,14 @@ func setupAllowedNetworks(s string) ([]*net.IPNet, error) {
 func loadConfig() (*config, error) {
 	cfg := config{}
 	registerFlags(flag.CommandLine, &cfg)
-	if err := loadCredentials(&cfg); err != nil {
-		return nil, fmt.Errorf("loadCredentials: %w", err)
-	}
 
 	iniflags.Parse()
 
 	setupLogger(cfg.logFormat, cfg.logLevel)
+
+	if err := loadCredentials(&cfg); err != nil {
+		return nil, fmt.Errorf("loadCredentials: %w", err)
+	}
 
 	logger := slog.With(slog.String("component", "config"))
 
@@ -138,6 +139,7 @@ func loadCredentials(c *config) error {
 	}
 
 	c.credentials = creds
+	slog.Info("loaded SMTP credentials", slog.Int("credential_count", len(creds)))
 	return nil
 }
 
