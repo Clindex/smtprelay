@@ -348,8 +348,8 @@ func (r *relay) mailHandler(cfg *config) func(ctx context.Context, peer smtpd.Pe
 			observeDuration(ctx, statusCode, time.Since(start))
 		}()
 
-		if err = r.limiter.Wait(ctx); err != nil {
-			return observeErr(ctx, smtpd.ErrBusy)
+		if err = r.waitForRateLimit(ctx); err != nil {
+			return observeErr(ctx, smtpd.ErrRateLimitExceeded)
 		}
 		err = smtp.SendMail(
 			cfg.remoteHost,
@@ -380,6 +380,38 @@ func (r *relay) mailHandler(cfg *config) func(ctx context.Context, peer smtpd.Pe
 		deliveryLog.InfoContext(ctx, "delivery successful", slog.Int("status_code", statusCode))
 
 		return nil
+	}
+}
+
+// waitForRateLimit waits until the message can be delivered. rate.Limiter.Wait
+// intentionally refuses to wait more than three seconds when a context has a
+// deadline, which would turn a busy queue into an SMTP error. Reserving a token
+// directly lets us wait for any backlog while still allowing shutdown to
+// cancel the wait.
+func (r *relay) waitForRateLimit(ctx context.Context) error {
+	if r.limiter == nil {
+		return nil
+	}
+
+	reservation := r.limiter.Reserve()
+	if !reservation.OK() {
+		return errors.New("rate limiter cannot reserve a delivery token")
+	}
+
+	delay := reservation.Delay()
+	if delay <= 0 {
+		return nil
+	}
+
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		reservation.Cancel()
+		return ctx.Err()
 	}
 }
 
