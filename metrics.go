@@ -106,7 +106,7 @@ func handleMetrics(ctx context.Context, addr string, registry prometheus.Registe
 	log := slog.Default().With(slog.String("component", "metrics"))
 
 	// Setup listeners first, so we can fail early if the address is in use.
-	httpListener, err := net.Listen("tcp", addr)
+	httpListener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen at %s: %w", addr, err)
 	}

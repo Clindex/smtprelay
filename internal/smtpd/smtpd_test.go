@@ -131,7 +131,7 @@ func runserver(t *testing.T, server *smtpd.Server) (addr string, closer func()) 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
 	go func() {
@@ -224,7 +224,7 @@ func TestListenAndServe(t *testing.T) {
 	defer cancel()
 
 	// get a random port
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	addr := ln.Addr().String()
 	ln.Close()
@@ -1224,7 +1224,7 @@ func TestTLSListener(t *testing.T) {
 		_ = server.Serve(ctx, ln)
 	}()
 
-	conn, err := tls.Dial("tcp", addr, testTLSConfig)
+	conn, err := (&tls.Dialer{Config: testTLSConfig}).DialContext(ctx, "tcp", addr)
 	require.NoError(t, err)
 
 	c, err := smtp.NewClient(conn, "localhost")
@@ -1253,7 +1253,7 @@ func TestShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
 	srvres := make(chan error)

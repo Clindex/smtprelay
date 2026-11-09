@@ -245,7 +245,7 @@ func (session *session) handleRCPT(ctx context.Context, cmd command) {
 	session.reply(250, "Go ahead")
 }
 
-func (session *session) handleSTARTTLS(_ context.Context, _ command) {
+func (session *session) handleSTARTTLS(ctx context.Context, _ command) {
 	if session.tls {
 		session.error(ErrDuplicateSTARTTLS)
 		return
@@ -259,7 +259,7 @@ func (session *session) handleSTARTTLS(_ context.Context, _ command) {
 	tlsConn := tls.Server(session.conn, session.server.TLSConfig)
 	session.reply(220, "Go ahead")
 
-	if err := tlsConn.Handshake(); err != nil {
+	if err := tlsConn.HandshakeContext(ctx); err != nil {
 		session.logError(err, "couldn't perform handshake")
 		session.error(ErrBadHandshake)
 		return
