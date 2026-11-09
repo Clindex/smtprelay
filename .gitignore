@@ -6,3 +6,5 @@ smtprelay.log
 !smtprelay.ini
 .idea
 *.out
+hasher
+hasher.exe
