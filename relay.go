@@ -321,16 +321,25 @@ func (r *relay) mailHandler(cfg *config) func(ctx context.Context, peer smtpd.Pe
 
 		var auth smtp.Auth
 
-		if credentials.Username != "" && credentials.Password != "" {
+		secret := credentials.Password
+		if strings.EqualFold(credentials.AuthType, "xoauth2") && credentials.AccessToken != "" {
+			secret = credentials.AccessToken
+		}
+
+		if credentials.Username != "" && secret != "" {
 			authType := credentials.AuthType
 			if authType == "" {
 				authType = "plain"
 			}
 			switch strings.ToLower(authType) {
 			case "plain":
-				auth = smtp.PlainAuth("", credentials.Username, credentials.Password, credentials.Server)
+				auth = smtp.PlainAuth("", credentials.Username, secret, credentials.Server)
 			case "login":
-				auth = _auth.LoginAuth(credentials.Username, credentials.Password, credentials.Server)
+				auth = _auth.LoginAuth(credentials.Username, secret, credentials.Server)
+			case "oauth":
+			case "oauth2":
+			case "xoauth2":
+				auth = _auth.XOAuth2Auth(credentials.Username, secret, credentials.Server)
 			default:
 				return observeErr(ctx, smtpd.ErrUnsupportedAuthMethod)
 			}

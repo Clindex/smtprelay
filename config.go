@@ -18,6 +18,7 @@ import (
 type SMTPCredentials struct {
 	Username              string `yaml:"username"`
 	Password              string `yaml:"password"`
+	AccessToken           string `yaml:"accessToken"`
 	Server                string `yaml:"server"`
 	AuthType              string `yaml:"authType"`
 	Port                  int    `yaml:"port"`

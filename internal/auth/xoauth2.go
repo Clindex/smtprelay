@@ -1,16 +1,17 @@
-﻿package auth
+package auth
 
 import (
 	"errors"
+	"fmt"
 	"net/smtp"
 )
 
 type xoauth2Auth struct {
-	accessToken, host string
+	username, accessToken, host string
 }
 
-func XOAuth2Auth(accessToken, host string) smtp.Auth {
-	return &xoauth2Auth{accessToken, host}
+func XOAuth2Auth(username, accessToken, host string) smtp.Auth {
+	return &xoauth2Auth{username, accessToken, host}
 }
 
 func (a *xoauth2Auth) Start(server *smtp.ServerInfo) (string, []byte, error) {
@@ -25,13 +26,15 @@ func (a *xoauth2Auth) Start(server *smtp.ServerInfo) (string, []byte, error) {
 	if server.Name != a.host {
 		return "", nil, errors.New("wrong host name")
 	}
-	return "XOAUTH2", []byte(""), nil
+	initialResponse := fmt.Sprintf("user=%s\x01auth=Bearer %s\x01\x01", a.username, a.accessToken)
+	return "XOAUTH2", []byte(initialResponse), nil
 }
 
-func (a *xoauth2Auth) Next(fromServer []byte, more bool) ([]byte, error) {
+func (a *xoauth2Auth) Next(_ []byte, more bool) ([]byte, error) {
 	if more {
-		// The server expects the access token.
-		return []byte(a.accessToken), nil
+		// An empty response terminates the failed XOAUTH2 exchange.
+		return []byte{}, nil
 	}
+
 	return nil, nil
 }
