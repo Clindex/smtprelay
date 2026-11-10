@@ -16,7 +16,6 @@ import (
 
 	_auth "github.com/evidentiq/smtprelay/v2/internal/auth"
 
-	"golang.org/x/time/rate"
 	"github.com/evidentiq/smtprelay/v2/internal/smtpd"
 	"github.com/evidentiq/smtprelay/v2/internal/traceutil"
 	"github.com/google/uuid"
@@ -24,27 +23,30 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/time/rate"
 )
 
 // relay is an SMTP relay server which can listen on a single address
 type relay struct {
 	server *smtpd.Server
 
-	cfg     *config
-	limiter *rate.Limiter
+	cfg      *config
+	limiters map[string]*rate.Limiter
 }
 
 func newRelay(cfg *config) (*relay, error) {
 	r := &relay{
-		cfg: cfg,
+		cfg:      cfg,
+		limiters: make(map[string]*rate.Limiter, len(cfg.credentials)),
 	}
-	slog.InfoContext(context.TODO(), "starting SMTP relay",
-		slog.Int("rate_limit_max_per_second", cfg.rateLimitMaxPerSecond),
-	)
-	if cfg.rateLimitMaxPerSecond == 0 {
-		r.limiter = rate.NewLimiter(rate.Inf, 1)
-	} else {
-		r.limiter = rate.NewLimiter(rate.Limit(cfg.rateLimitMaxPerSecond), 1)
+
+	for key, credentials := range cfg.credentials {
+		r.limiters[key] = newRateLimiter(credentials.RateLimitMaxPerSecond)
+	}
+
+	// Keep the command-line setting working when no credential file is used.
+	if len(cfg.credentials) == 0 {
+		r.limiters["default"] = newRateLimiter(cfg.rateLimitMaxPerSecond)
 	}
 
 	r.server = &smtpd.Server{
@@ -356,7 +358,8 @@ func (r *relay) mailHandler(cfg *config) func(ctx context.Context, peer smtpd.Pe
 			observeDuration(ctx, statusCode, time.Since(start))
 		}()
 
-		if err = r.waitForRateLimit(ctx); err != nil {
+		credentialKey := cfg.credentialKey(env.Sender)
+		if err = r.waitForRateLimit(ctx, r.limiters[credentialKey]); err != nil {
 			return observeErr(ctx, smtpd.ErrRateLimitExceeded)
 		}
 		err = smtp.SendMail(
@@ -396,12 +399,12 @@ func (r *relay) mailHandler(cfg *config) func(ctx context.Context, peer smtpd.Pe
 // deadline, which would turn a busy queue into an SMTP error. Reserving a token
 // directly lets us wait for any backlog while still allowing shutdown to
 // cancel the wait.
-func (r *relay) waitForRateLimit(ctx context.Context) error {
-	if r.limiter == nil {
+func (r *relay) waitForRateLimit(ctx context.Context, limiter *rate.Limiter) error {
+	if limiter == nil {
 		return nil
 	}
 
-	reservation := r.limiter.Reserve()
+	reservation := limiter.Reserve()
 	if !reservation.OK() {
 		return errors.New("rate limiter cannot reserve a delivery token")
 	}
@@ -421,6 +424,14 @@ func (r *relay) waitForRateLimit(ctx context.Context) error {
 		reservation.Cancel()
 		return ctx.Err()
 	}
+}
+
+func newRateLimiter(maxPerSecond int) *rate.Limiter {
+	if maxPerSecond == 0 {
+		return rate.NewLimiter(rate.Inf, 1)
+	}
+
+	return rate.NewLimiter(rate.Limit(maxPerSecond), 1)
 }
 
 func observeErr(ctx context.Context, err *textproto.Error) error {

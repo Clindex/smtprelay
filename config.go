@@ -16,11 +16,12 @@ import (
 )
 
 type SMTPCredentials struct {
-	Username string `yaml:"username"`
-	Password string `yaml:"password"`
-	Server   string `yaml:"server"`
-	AuthType string `yaml:"authType"`
-	Port     int    `yaml:"port"`
+	Username              string `yaml:"username"`
+	Password              string `yaml:"password"`
+	Server                string `yaml:"server"`
+	AuthType              string `yaml:"authType"`
+	Port                  int    `yaml:"port"`
+	RateLimitMaxPerSecond int    `yaml:"rateLimitMaxPerSecond"`
 }
 
 //nolint:govet
@@ -33,7 +34,7 @@ type config struct {
 	localCert             string
 	localKey              string
 	localForceTLS         bool
-	allowInsecureAuth	  bool
+	allowInsecureAuth     bool
 	allowedNetsStr        string
 	allowedSender         string
 	allowedRecipients     string
@@ -199,15 +200,19 @@ func parseLogHeaders(s string) map[string]string {
 }
 
 func (s *config) GetSMTPCredentials(sender string) SMTPCredentials {
+	return s.credentials[s.credentialKey(sender)]
+}
+
+func (s *config) credentialKey(sender string) string {
 	// if sender is not set, return default credentials
 	if sender == "" {
-		return s.credentials["default"]
+		return "default"
 	}
 
 	// if sender is in credentials, return those credentials
-	if creds, ok := s.credentials[sender]; ok {
-		return creds
+	if _, ok := s.credentials[sender]; ok {
+		return sender
 	}
 
-	return s.credentials["default"]
+	return "default"
 }
