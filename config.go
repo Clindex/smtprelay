@@ -16,43 +16,45 @@ import (
 )
 
 type SMTPCredentials struct {
-	Username string `yaml:"username"`
-	Password string `yaml:"password"`
-	Server   string `yaml:"server"`
-	AuthType string `yaml:"authType"`
-	Port     int    `yaml:"port"`
+	Username              string `yaml:"username"`
+	Password              string `yaml:"password"`
+	Server                string `yaml:"server"`
+	AuthType              string `yaml:"authType"`
+	Port                  int    `yaml:"port"`
+	RateLimitMaxPerSecond int    `yaml:"rateLimitMaxPerSecond"`
 }
 
 //nolint:govet
 type config struct {
-	logFormat         string
-	hostName          string
-	welcomeMsg        string
-	listen            string
-	metricsListen     string
-	localCert         string
-	localKey          string
-	localForceTLS     bool
-	allowInsecureAuth bool
-	allowedNetsStr    string
-	allowedSender     string
-	allowedRecipients string
-	deniedRecipients  string
-	allowedUsers      string
-	remoteHost        string
-	remoteUser        string
-	maxMessageSize    int
-	maxConnections    int
-	maxRecipients     int
-	readTimeout       time.Duration
-	writeTimeout      time.Duration
-	dataTimeout       time.Duration
-	remotePass        string
-	remoteAuth        string
-	remoteSender      string
-	versionInfo       bool
-	logLevel          string
-	logHeadersStr     string
+	logFormat             string
+	hostName              string
+	welcomeMsg            string
+	listen                string
+	metricsListen         string
+	localCert             string
+	localKey              string
+	localForceTLS         bool
+	allowInsecureAuth     bool
+	allowedNetsStr        string
+	allowedSender         string
+	allowedRecipients     string
+	deniedRecipients      string
+	allowedUsers          string
+	remoteHost            string
+	remoteUser            string
+	maxMessageSize        int
+	maxConnections        int
+	maxRecipients         int
+	readTimeout           time.Duration
+	writeTimeout          time.Duration
+	dataTimeout           time.Duration
+	remotePass            string
+	remoteAuth            string
+	remoteSender          string
+	versionInfo           bool
+	logLevel              string
+	logHeadersStr         string
+	rateLimitMaxPerSecond int
 
 	allowedNets []*net.IPNet
 	logHeaders  map[string]string
@@ -172,6 +174,7 @@ func registerFlags(f *flag.FlagSet, cfg *config) {
 	f.BoolVar(&cfg.versionInfo, "version", false, "Show version information")
 	f.StringVar(&cfg.logLevel, "log_level", "debug", "Minimum log level to output")
 	f.StringVar(&cfg.logHeadersStr, "log_header", "", "Log this mail header's value (log_field=Header-Name) set multiples with spaces")
+	f.IntVar(&cfg.rateLimitMaxPerSecond, "rate_limit_max_per_second", 0, "Maximum number of requests per second (0 to disable rate limiting)")
 }
 
 // parse the input into a map[string]string. It should be in the form of
@@ -197,15 +200,19 @@ func parseLogHeaders(s string) map[string]string {
 }
 
 func (s *config) GetSMTPCredentials(sender string) SMTPCredentials {
+	return s.credentials[s.credentialKey(sender)]
+}
+
+func (s *config) credentialKey(sender string) string {
 	// if sender is not set, return default credentials
 	if sender == "" {
-		return s.credentials["default"]
+		return "default"
 	}
 
 	// if sender is in credentials, return those credentials
-	if creds, ok := s.credentials[sender]; ok {
-		return creds
+	if _, ok := s.credentials[sender]; ok {
+		return sender
 	}
 
-	return s.credentials["default"]
+	return "default"
 }

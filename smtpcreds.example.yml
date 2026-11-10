@@ -4,9 +4,11 @@
   username: smtp_relay@fortressmedical.com
   password:
   authType: plain
+  rateLimitMaxPerSecond: 10
 clindex-noreply@clindexlive.com:
   server: email-smtp.us-east-1.amazonaws.com
   port: 587
   username:
   password:
   authType: plain
+  rateLimitMaxPerSecond: 14
