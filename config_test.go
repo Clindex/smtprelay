@@ -22,6 +22,20 @@ func TestAllowInsecureAuthFlag(t *testing.T) {
 	require.True(t, r.server.AllowInsecureAuth)
 }
 
+func TestCredentialUsernameDefaultsToMapKey(t *testing.T) {
+	t.Parallel()
+	cfg := &config{credentials: map[string]SMTPCredentials{
+		"sender@example.com": {AuthType: "xoauth2"},
+		"alias@example.com":  {Username: "mailbox@example.com"},
+		"default":            {},
+	}}
+	require.Equal(t, "sender@example.com", cfg.GetSMTPCredentials("sender@example.com").Username)
+	require.Equal(t, "mailbox@example.com", cfg.GetSMTPCredentials("alias@example.com").Username)
+	require.Equal(t, "default", cfg.GetSMTPCredentials("unlisted@example.com").Username)
+	require.Equal(t, "default", cfg.GetSMTPCredentials("").Username)
+	require.Empty(t, (&config{}).GetSMTPCredentials("unlisted@example.com").Username)
+}
+
 func TestSetupAllowedNetworks(t *testing.T) {
 	t.Parallel()
 

@@ -32,12 +32,18 @@ type relay struct {
 
 	cfg      *config
 	limiters map[string]*rate.Limiter
+	tokens   *microsoftTokenProvider
 }
 
 func newRelay(cfg *config) (*relay, error) {
 	r := &relay{
 		cfg:      cfg,
 		limiters: make(map[string]*rate.Limiter, len(cfg.credentials)),
+	}
+	var err error
+	r.tokens, err = newMicrosoftTokenProvider(cfg.microsoftOAuth, cfg.credentials)
+	if err != nil {
+		return nil, err
 	}
 
 	for key, credentials := range cfg.credentials {
@@ -319,24 +325,48 @@ func (r *relay) mailHandler(cfg *config) func(ctx context.Context, peer smtpd.Pe
 
 		deliveryLog.InfoContext(ctx, "delivering mail from peer using smarthost")
 
-		var auth smtp.Auth
+		credentialKey := cfg.credentialKey(env.Sender)
+		if err = r.waitForRateLimit(ctx, r.limiters[credentialKey]); err != nil {
+			return observeErr(ctx, smtpd.ErrRateLimitExceeded)
+		}
 
-		if credentials.Username != "" && credentials.Password != "" {
+		var auth smtp.Auth
+		deliveryLog.DebugContext(ctx, "selecting upstream SMTP authentication",
+			"credential_key", credentialKey, "auth_type", credentials.AuthType,
+			"username", credentials.Username, "automatic_oauth_configured", r.tokens != nil,
+			"has_static_access_token", credentials.AccessToken != "", "has_password", credentials.Password != "")
+
+		secret := credentials.Password
+		if provider := r.tokens; provider != nil && isOAuthAuth(credentials.AuthType) {
+			secret, err = provider.Token(ctx)
+			if err != nil {
+				logger.ErrorContext(ctx, "OAuth token acquisition failed", slog.Any("error", err))
+				return observeErr(ctx, &textproto.Error{Code: 451, Msg: "Upstream authentication temporarily unavailable"})
+			}
+		}
+		if r.tokens == nil && isOAuthAuth(credentials.AuthType) && credentials.AccessToken != "" {
+			secret = credentials.AccessToken
+		}
+
+		if credentials.Username != "" && secret != "" {
 			authType := credentials.AuthType
 			if authType == "" {
 				authType = "plain"
 			}
 			switch strings.ToLower(authType) {
 			case "plain":
-				auth = smtp.PlainAuth("", credentials.Username, credentials.Password, credentials.Server)
+				auth = smtp.PlainAuth("", credentials.Username, secret, credentials.Server)
 			case "login":
-				auth = _auth.LoginAuth(credentials.Username, credentials.Password, credentials.Server)
+				auth = _auth.LoginAuth(credentials.Username, secret, credentials.Server)
+			case "oauth", "oauth2", "xoauth2":
+				auth = _auth.XOAuth2Auth(credentials.Username, secret, credentials.Server)
 			default:
 				return observeErr(ctx, smtpd.ErrUnsupportedAuthMethod)
 			}
 		}
 
 		env.AddReceivedLine(peer)
+		deliveryLog.DebugContext(ctx, "upstream SMTP authentication selected", "authentication_enabled", auth != nil)
 
 		var sender string
 
@@ -358,10 +388,6 @@ func (r *relay) mailHandler(cfg *config) func(ctx context.Context, peer smtpd.Pe
 			observeDuration(ctx, statusCode, time.Since(start))
 		}()
 
-		credentialKey := cfg.credentialKey(env.Sender)
-		if err = r.waitForRateLimit(ctx, r.limiters[credentialKey]); err != nil {
-			return observeErr(ctx, smtpd.ErrRateLimitExceeded)
-		}
 		err = smtp.SendMail(
 			remoteHost,
 			auth,

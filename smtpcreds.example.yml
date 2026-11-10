@@ -3,6 +3,7 @@
   port: 587
   username: smtp_relay@fortressmedical.com
   password:
+  accessToken:
   authType: plain
   rateLimitMaxPerSecond: 10
 clindex-noreply@clindexlive.com:
@@ -10,5 +11,6 @@ clindex-noreply@clindexlive.com:
   port: 587
   username:
   password:
+  accessToken:
   authType: plain
   rateLimitMaxPerSecond: 14

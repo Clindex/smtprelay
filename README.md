@@ -26,7 +26,7 @@ There are two ways to provide configuration
 
 1. .ini file (see `smtprelay.ini` for example)
     ```console
-    $ ./smtprelay -config=smtprelay.ini
+$ ./smtprelay -config=./smtprelay.ini
     ```
 
 2. command line arguments for each config option.
@@ -41,12 +41,50 @@ You can mix and match, see priority to see which config value will be used
 2. if not set, use value from ini file,
 3. at last, use default value.
 
-NOTE: If `remote_pass` is not set at the end, It will try to read
-it from `REMOTE_PASS` environment variable.
-
-It was added to support loading the secret from an environment variable.
+If `remote_pass` is not set, the relay reads it from the `REMOTE_PASS`
+environment variable.
 
 Use `./smtprelay -help` for help on config options.
+
+### Microsoft 365 OAuth with 1Password
+
+For Microsoft 365 SMTP, store the application's client secret in 1Password and
+set `OP_SERVICE_ACCOUNT_TOKEN` in the relay's environment. The service account
+must have read access to the vault containing the secret.
+
+Configure Microsoft OAuth once in `smtprelay.ini` (or use the matching command-line flags):
+
+```ini
+microsoft_tenant_id = <directory-tenant-id>
+microsoft_client_id = <application-client-id>
+microsoft_client_secret_ref = op://<vault>/<item>/<field>
+```
+
+Start with `-config=./smtprelay.ini` to load the file from the working directory.
+
+Add each sending mailbox to `smtpcreds.yml` in the working directory:
+
+If `username` is omitted or empty, it defaults to the entry's map key.
+
+```yaml
+sender@example.com:
+  server: smtp.office365.com
+  port: 587
+  authType: xoauth2
+```
+
+All XOAUTH2 senders use the shared Microsoft configuration. Omit `password`
+and `accessToken` from these entries.
+
+The Entra application needs Exchange Online `SMTP.SendAsApp` application
+permission with administrator consent, an Exchange service principal registered
+using the **Enterprise application** Object ID, and mailbox FullAccess and SendAs
+permissions. See [Microsoft's SMTP OAuth setup](https://learn.microsoft.com/en-us/exchange/client-developer/legacy-protocols/how-to-authenticate-an-imap-pop-smtp-application-by-using-oauth)
+and [1Password service account setup](https://github.com/1Password/onepassword-sdk-go#option-2-1password-service-account).
+
+The relay obtains and renews tokens automatically. Client secret rotation in
+1Password takes effect on the next renewal. Restart after changing the relay
+configuration or service account token.
 
 ### Metrics
 
@@ -58,7 +96,8 @@ The listening address can be changed by setting `metrics_listen`.
 
 Structured logs are written to `stderr`.
 
-The log level is `INFO` by default, and can be changed by setting `log_level`.
+Set `log_level` to control verbosity. Use `debug` to troubleshoot authentication
+and token renewal. Failures are logged at `error` level; secrets are not logged.
 
 ### Tracing
 
