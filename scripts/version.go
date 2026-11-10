@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -88,7 +89,7 @@ func main() {
 func runCmd(c string) (string, error) {
 	parts := strings.Split(c, " ")
 	//nolint:gosec
-	cmd := exec.Command(parts[0], parts[1:]...)
+	cmd := exec.CommandContext(context.Background(), parts[0], parts[1:]...)
 	out, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(out)), err
 }

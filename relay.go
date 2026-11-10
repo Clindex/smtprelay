@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	_auth "github.com/evidentiq/smtprelay/v2/internal/auth"
 	"log/slog"
 	"net"
 	"net/smtp"
@@ -15,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	_auth "github.com/evidentiq/smtprelay/v2/internal/auth"
+
 	"github.com/evidentiq/smtprelay/v2/internal/smtpd"
 	"github.com/evidentiq/smtprelay/v2/internal/traceutil"
 	"github.com/google/uuid"
@@ -22,18 +23,30 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/time/rate"
 )
 
 // relay is an SMTP relay server which can listen on a single address
 type relay struct {
 	server *smtpd.Server
 
-	cfg *config
+	cfg      *config
+	limiters map[string]*rate.Limiter
 }
 
 func newRelay(cfg *config) (*relay, error) {
 	r := &relay{
-		cfg: cfg,
+		cfg:      cfg,
+		limiters: make(map[string]*rate.Limiter, len(cfg.credentials)),
+	}
+
+	for key, credentials := range cfg.credentials {
+		r.limiters[key] = newRateLimiter(credentials.RateLimitMaxPerSecond)
+	}
+
+	// Keep the command-line setting working when no credential file is used.
+	if len(cfg.credentials) == 0 {
+		r.limiters["default"] = newRateLimiter(cfg.rateLimitMaxPerSecond)
 	}
 
 	r.server = &smtpd.Server{
@@ -96,12 +109,12 @@ func (r *relay) shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (r *relay) listen(address string) (net.Listener, error) {
+func (r *relay) listen(ctx context.Context, address string) (net.Listener, error) {
 	var ln net.Listener
 
 	switch {
 	case !strings.Contains(address, "://"):
-		listener, err := net.Listen("tcp", address)
+		listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", address)
 		if err != nil {
 			return nil, fmt.Errorf("could not listen on address %q: %w", address, err)
 		}
@@ -117,7 +130,7 @@ func (r *relay) listen(address string) (net.Listener, error) {
 
 		address = strings.TrimPrefix(address, "starttls://")
 
-		listener, err := net.Listen("tcp", address)
+		listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", address)
 		if err != nil {
 			return nil, fmt.Errorf("could not listen on address %q: %w", address, err)
 		}
@@ -294,12 +307,13 @@ func (r *relay) mailHandler(cfg *config) func(ctx context.Context, peer smtpd.Pe
 		logger := slog.With(slog.String("component", "mail_handler"), slog.String("uuid", uniqueID))
 
 		credentials := cfg.GetSMTPCredentials(env.Sender)
+		remoteHost := fmt.Sprintf("%s:%d", credentials.Server, credentials.Port)
 		// parse headers from data if we need to log any of them
 		var err error
 		deliveryLog := logger.With(
 			slog.String("from", env.Sender),
 			slog.Any("to", env.Recipients),
-			slog.String("host", fmt.Sprintf("%s:%d", credentials.Server, credentials.Port)),
+			slog.String("host", remoteHost),
 		)
 		deliveryLog = addLogHeaderFields(cfg.logHeaders, deliveryLog, env.Header)
 
@@ -308,12 +322,11 @@ func (r *relay) mailHandler(cfg *config) func(ctx context.Context, peer smtpd.Pe
 		var auth smtp.Auth
 
 		if credentials.Username != "" && credentials.Password != "" {
-			authType := "plain"
-			if strings.Contains(credentials.Server, "outlook") ||
-				strings.Contains(credentials.Server, "office") {
-				authType = "login"
+			authType := credentials.AuthType
+			if authType == "" {
+				authType = "plain"
 			}
-			switch authType {
+			switch strings.ToLower(authType) {
 			case "plain":
 				auth = smtp.PlainAuth("", credentials.Username, credentials.Password, credentials.Server)
 			case "login":
@@ -345,8 +358,12 @@ func (r *relay) mailHandler(cfg *config) func(ctx context.Context, peer smtpd.Pe
 			observeDuration(ctx, statusCode, time.Since(start))
 		}()
 
+		credentialKey := cfg.credentialKey(env.Sender)
+		if err = r.waitForRateLimit(ctx, r.limiters[credentialKey]); err != nil {
+			return observeErr(ctx, smtpd.ErrRateLimitExceeded)
+		}
 		err = smtp.SendMail(
-			fmt.Sprintf("%s:%d", credentials.Server, credentials.Port),
+			remoteHost,
 			auth,
 			sender,
 			env.Recipients,
@@ -375,6 +392,46 @@ func (r *relay) mailHandler(cfg *config) func(ctx context.Context, peer smtpd.Pe
 
 		return nil
 	}
+}
+
+// waitForRateLimit waits until the message can be delivered. rate.Limiter.Wait
+// intentionally refuses to wait more than three seconds when a context has a
+// deadline, which would turn a busy queue into an SMTP error. Reserving a token
+// directly lets us wait for any backlog while still allowing shutdown to
+// cancel the wait.
+func (r *relay) waitForRateLimit(ctx context.Context, limiter *rate.Limiter) error {
+	if limiter == nil {
+		return nil
+	}
+
+	reservation := limiter.Reserve()
+	if !reservation.OK() {
+		return errors.New("rate limiter cannot reserve a delivery token")
+	}
+
+	delay := reservation.Delay()
+	if delay <= 0 {
+		return nil
+	}
+
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		reservation.Cancel()
+		return ctx.Err()
+	}
+}
+
+func newRateLimiter(maxPerSecond int) *rate.Limiter {
+	if maxPerSecond == 0 {
+		return rate.NewLimiter(rate.Inf, 1)
+	}
+
+	return rate.NewLimiter(rate.Limit(maxPerSecond), 1)
 }
 
 func observeErr(ctx context.Context, err *textproto.Error) error {
@@ -475,7 +532,6 @@ func getServerTLSConfig(certpath, keypath string) (*tls.Config, error) {
 		return nil, fmt.Errorf("cannot load X509 keypair: %w", err)
 	}
 
-	//nolint:gosec // 1.2 is default, and omitting MinVersion allows overriding with GODEBUG
 	return &tls.Config{
 		Certificates: []tls.Certificate{cert},
 	}, nil
