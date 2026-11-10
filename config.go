@@ -56,6 +56,7 @@ type config struct {
 	logLevel              string
 	logHeadersStr         string
 	rateLimitMaxPerSecond int
+	microsoftOAuth        MicrosoftOAuthConfig
 
 	allowedNets []*net.IPNet
 	logHeaders  map[string]string
@@ -147,6 +148,9 @@ func loadCredentials(c *config) error {
 }
 
 func registerFlags(f *flag.FlagSet, cfg *config) {
+	f.StringVar(&cfg.microsoftOAuth.TenantID, "microsoft_tenant_id", "", "Microsoft OAuth directory tenant ID (shared by all XOAUTH2 senders)")
+	f.StringVar(&cfg.microsoftOAuth.ClientID, "microsoft_client_id", "", "Microsoft OAuth application client ID")
+	f.StringVar(&cfg.microsoftOAuth.ClientSecretRef, "microsoft_client_secret_ref", "", "1Password op://vault/item/field reference for the Microsoft client secret")
 	f.StringVar(&cfg.logFormat, "log_format", "json", "Log format - json or logfmt")
 	f.StringVar(&cfg.hostName, "hostname", "localhost.localdomain", "Server hostname")
 	f.StringVar(&cfg.welcomeMsg, "welcome_msg", "", "Welcome message for SMTP session")
@@ -201,7 +205,19 @@ func parseLogHeaders(s string) map[string]string {
 }
 
 func (s *config) GetSMTPCredentials(sender string) SMTPCredentials {
-	return s.credentials[s.credentialKey(sender)]
+	key := s.credentialKey(sender)
+	credentials, ok := s.credentials[key]
+	if !ok {
+		return SMTPCredentials{}
+	}
+	return credentials.withDefaultUsername(key)
+}
+
+func (c SMTPCredentials) withDefaultUsername(key string) SMTPCredentials {
+	if c.Username == "" {
+		c.Username = key
+	}
+	return c
 }
 
 func (s *config) credentialKey(sender string) string {
